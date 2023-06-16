@@ -72,3 +72,88 @@ int main()
         sem_post(sem_conv_stat); // signal Stat process
         exit(0);                 // exit Conv process
     }
+// fork Log process
+    pid_log = fork(); // fork Log process
+
+    // check if fork was successful
+    if (pid_log == 0) // if Log process
+    {
+        // Log process
+        sem_wait(sem_conv_log); // wait for Conv process to finish
+
+        // write readings to local file
+        FILE *fp = fopen("readings.txt", "w"); // open file for writing
+        int i;                                 // loop counter
+        for (i = 0; i < 10; i++)               // loop 10 times
+        {
+            fprintf(fp, "%d\n", shared_data->values[i]); // write reading to file
+        }
+        fclose(fp); // close file
+        exit(0);    // exit Log process
+    }
+
+    // fork Stat process
+    pid_stat = fork(); // fork Stat process
+
+    // check if fork was successful
+    if (pid_stat == 0) // if Stat process
+    {
+        // Stat process
+        sem_wait(sem_conv_stat); // wait for Conv process to finish
+        int sum = 0;             // initialize sum
+        int i;                   // loop counter
+        for (i = 0; i < 10; i++) // loop 10 times
+        {
+            sum += shared_data->values[i]; // add reading to sum
+        }
+        // calculate mean
+        float mean = (float)sum / 10; // calculate mean
+
+        // write statistical data to shared memory
+        shared_data->values[0] = sum;  // write sum to shared memory
+        shared_data->values[1] = mean; // write mean to shared memory
+
+        // signal Report process that data is ready
+        sem_post(sem_stat_report); // signal Report process
+        exit(0);                   // exit Stat process
+    }
+
+    // fork Report process
+    pid_report = fork(); // fork Report process
+
+    // check if fork was successful
+    if (pid_report == 0) // if Report process
+    {
+        // Report process
+        sem_wait(sem_stat_report); // wait for Stat process to finish
+
+        // read statistical data from shared memory
+        int sum = shared_data->values[0];    // read sum from shared memory
+        float mean = shared_data->values[1]; // read mean from shared memory
+
+        // output statistical data to shell
+        printf("Sum: %d\n", sum);   // output sum
+        printf("Mean: %f\n", mean); // output mean
+        exit(0);                    // exit Report process
+    }
+
+    // wait for child processes to terminate
+    waitpid(pid_conv, NULL, 0);   // wait for Conv process to finish
+    waitpid(pid_log, NULL, 0);    // wait for Log process to finish
+    waitpid(pid_stat, NULL, 0);   // wait for Stat process to finish
+    waitpid(pid_report, NULL, 0); // wait for Report process to finish
+
+    // detach and remove shared memory segment
+    shmdt(shared_data);            // detach shared memory segment
+    shmctl(shmid, IPC_RMID, NULL); // remove shared memory segment
+
+    // close and unlink semaphores
+    sem_close(sem_conv_log);       // close semaphore
+    sem_close(sem_conv_stat);      // close semaphore
+    sem_close(sem_stat_report);    // close semaphore
+    sem_unlink("sem_conv_log");    // unlink semaphore
+    sem_unlink("sem_conv_stat");   // unlink semaphore
+    sem_unlink("sem_stat_report"); // unlink semaphore
+
+    return 0; // exit program
+}
